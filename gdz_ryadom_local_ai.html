@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ГДЗ рядом — локальный ИИ</title>
+<style>
+:root{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#182230;background:#f3f6fb}*{box-sizing:border-box}body{margin:0;padding:16px}.wrap{max-width:720px;margin:auto}.card{background:#fff;border:1px solid #e1e7ef;border-radius:18px;padding:18px;margin:12px 0;box-shadow:0 4px 18px #12213b0a}h1{font-size:27px;margin:4px 0 8px}p{line-height:1.5}.muted{color:#526174;font-size:14px}.status{padding:12px;border-radius:12px;background:#edf4ff;font-size:14px;line-height:1.45}textarea{width:100%;min-height:140px;border:1px solid #bdc8d8;border-radius:12px;padding:13px;font:inherit;font-size:16px;resize:vertical}button{border:0;border-radius:12px;padding:13px 16px;font:inherit;font-weight:700;cursor:pointer}button:disabled{opacity:.55;cursor:wait}.primary{background:#235edb;color:#fff;width:100%;margin-top:10px}.secondary{background:#e9eef6;color:#182230}.answer{white-space:pre-wrap;line-height:1.6;overflow-wrap:anywhere}.progress{height:7px;background:#e6ebf2;border-radius:9px;overflow:hidden;margin-top:8px}.bar{height:100%;width:0;background:#235edb;transition:width .2s}.tiny{font-size:12px;color:#657286}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+</style>
+</head>
+<body><main class="wrap">
+<div class="card"><h1>ГДЗ рядом</h1><p>Помощник по домашним заданиям. Напиши условие — ИИ попробует объяснить решение по шагам.</p><div id="status" class="status">Готовим локальный ИИ. При первом запуске нужно скачать модель (около 300 МБ). Это не платный API; модель будет работать в браузере, если телефон и браузер поддерживают WebGPU.</div><div class="progress"><div id="bar" class="bar"></div></div><p id="progressText" class="tiny">Модель ещё не загружена.</p><div class="actions"><button id="loadBtn" class="secondary">Запустить ИИ</button></div></div>
+<div class="card"><label for="task"><strong>Твоё задание</strong></label><p class="muted">Например: «Реши уравнение 3x + 5 = 20 и объясни каждый шаг».</p><textarea id="task" placeholder="Напиши задание сюда…"></textarea><button id="solveBtn" class="primary" disabled>Объяснить решение</button></div>
+<div class="card"><strong>Ответ</strong><p id="answer" class="answer">Здесь появится объяснение.</p><div class="actions"><button id="copyBtn" class="secondary">Скопировать ответ</button><button id="clearBtn" class="secondary">Очистить</button></div></div>
+<div class="card"><strong>Важно знать</strong><p class="muted">Это пробная версия: небольшая модель может ошибаться и отвечать медленно. В этой версии работает ввод текста; фото заданий пока не распознаются. Интернет нужен для первоначальной загрузки файлов модели и библиотеки. После загрузки вычисления выполняются на устройстве, но повторная работа офлайн зависит от кеша браузера.</p></div>
+</main>
+<script type="module">
+const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
+const statusEl=document.querySelector('#status'),bar=document.querySelector('#bar'),progressText=document.querySelector('#progressText'),loadBtn=document.querySelector('#loadBtn'),solveBtn=document.querySelector('#solveBtn'),taskEl=document.querySelector('#task'),answerEl=document.querySelector('#answer');
+let engine=null, loading=false;
+function status(t){statusEl.textContent=t}
+loadBtn.addEventListener('click', async()=>{
+ if(engine||loading)return; loading=true;loadBtn.disabled=true;
+ try{
+  if(!navigator.gpu){throw new Error('Этот браузер не сообщил о поддержке WebGPU. Попробуй обновить Chrome или открыть страницу в другом современном браузере Android. На некоторых телефонах WebGPU недоступен.')}
+  status('Подключаем движок и загружаем модель. Не закрывай вкладку; первая загрузка может занять несколько минут.');
+  const {CreateMLCEngine}=await import('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/+esm');
+  engine=await CreateMLCEngine(MODEL_ID,{initProgressCallback:(report)=>{const p=Math.max(0,Math.min(1,report.progress||0));bar.style.width=(p*100)+'%';progressText.textContent=report.text||('Загрузка: '+Math.round(p*100)+'%');}});
+  status('ИИ готов. Напиши задание ниже.');progressText.textContent='Модель загружена и готова к работе.';solveBtn.disabled=false;loadBtn.textContent='ИИ запущен';
+ }catch(e){status('Не удалось запустить ИИ: '+(e?.message||String(e)));progressText.textContent='Проверь интернет, память телефона и поддержку WebGPU.';loadBtn.disabled=false;}
+ finally{loading=false;}
+});
+solveBtn.addEventListener('click',async()=>{
+ const task=taskEl.value.trim();if(!task){status('Сначала напиши условие задания.');return}if(!engine)return;
+ solveBtn.disabled=true;answerEl.textContent='Думаю над заданием…';
+ try{const result=await engine.chat.completions.create({messages:[{role:'system',content:'Ты доброжелательный русскоязычный помощник школьника. Помогай учиться: объясняй простыми словами, решай по шагам, проверяй вычисления. Если данных не хватает, задай уточняющий вопрос. Не выдумывай условие. В конце коротко проверь ответ.'},{role:'user',content:task}],temperature:0.3,max_tokens:600});answerEl.textContent=result.choices?.[0]?.message?.content||'Модель не вернула ответ.';}
+ catch(e){answerEl.textContent='Ошибка при генерации: '+(e?.message||String(e));}
+ finally{solveBtn.disabled=false;}
+});
+document.querySelector('#copyBtn').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(answerEl.textContent);status('Ответ скопирован.')}catch{status('Не удалось скопировать автоматически — выдели ответ и скопируй его вручную.')}});
+document.querySelector('#clearBtn').addEventListener('click',()=>{taskEl.value='';answerEl.textContent='Здесь появится объяснение.';});
+</script></body></html>
