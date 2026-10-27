@@ -8,31 +8,46 @@
 </style>
 </head>
 <body><main class="wrap">
-<div class="card"><h1>ГДЗ рядом</h1><p>Помощник по домашним заданиям. Напиши условие — ИИ попробует объяснить решение по шагам.</p><div id="status" class="status">Готовим локальный ИИ. При первом запуске нужно скачать модель (около 300 МБ). Это не платный API; модель будет работать в браузере, если телефон и браузер поддерживают WebGPU.</div><div class="progress"><div id="bar" class="bar"></div></div><p id="progressText" class="tiny">Модель ещё не загружена.</p><div class="actions"><button id="loadBtn" class="secondary">Запустить ИИ</button></div></div>
+<div class="card"><h1>ГДЗ рядом</h1><p>Помощник по домашним заданиям. Напиши условие — ИИ попробует объяснить решение по шагам.</p><div id="status" class="status">Готовим локальный ИИ. При первом запуске нужно скачать модель (сотни МБ). Это может занять время и потребовать свободной памяти. Модель работает в браузере через процессор; WebGPU не нужен.</div><div class="progress"><div id="bar" class="bar"></div></div><p id="progressText" class="tiny">Модель ещё не загружена.</p><div class="actions"><button id="loadBtn" class="secondary">Запустить ИИ</button></div></div>
 <div class="card"><label for="task"><strong>Твоё задание</strong></label><p class="muted">Например: «Реши уравнение 3x + 5 = 20 и объясни каждый шаг».</p><textarea id="task" placeholder="Напиши задание сюда…"></textarea><button id="solveBtn" class="primary" disabled>Объяснить решение</button></div>
 <div class="card"><strong>Ответ</strong><p id="answer" class="answer">Здесь появится объяснение.</p><div class="actions"><button id="copyBtn" class="secondary">Скопировать ответ</button><button id="clearBtn" class="secondary">Очистить</button></div></div>
-<div class="card"><strong>Важно знать</strong><p class="muted">Это пробная версия: небольшая модель может ошибаться и отвечать медленно. В этой версии работает ввод текста; фото заданий пока не распознаются. Интернет нужен для первоначальной загрузки файлов модели и библиотеки. После загрузки вычисления выполняются на устройстве, но повторная работа офлайн зависит от кеша браузера.</p></div>
+<div class="card"><strong>Важно знать</strong><p class="muted">Это пробная версия: небольшая модель может ошибаться и отвечать медленно. В этой версии работает ввод текста; фото заданий пока не распознаются. Интернет нужен для первоначальной загрузки библиотеки и модели. Модель работает на процессоре телефона и может отвечать медленно. Для загрузки потребуется несколько сотен МБ свободного места.</p></div>
 </main>
 <script type="module">
-const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
+const MODEL_ID = "onnx-community/Qwen2.5-0.5B-Instruct";
 const statusEl=document.querySelector('#status'),bar=document.querySelector('#bar'),progressText=document.querySelector('#progressText'),loadBtn=document.querySelector('#loadBtn'),solveBtn=document.querySelector('#solveBtn'),taskEl=document.querySelector('#task'),answerEl=document.querySelector('#answer');
 let engine=null, loading=false;
 function status(t){statusEl.textContent=t}
 loadBtn.addEventListener('click', async()=>{
  if(engine||loading)return; loading=true;loadBtn.disabled=true;
  try{
-  if(!navigator.gpu){throw new Error('Этот браузер не сообщил о поддержке WebGPU. Попробуй обновить Chrome или открыть страницу в другом современном браузере Android. На некоторых телефонах WebGPU недоступен.')}
-  status('Подключаем движок и загружаем модель. Не закрывай вкладку; первая загрузка может занять несколько минут.');
-  const {CreateMLCEngine}=await import('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/+esm');
-  engine=await CreateMLCEngine(MODEL_ID,{initProgressCallback:(report)=>{const p=Math.max(0,Math.min(1,report.progress||0));bar.style.width=(p*100)+'%';progressText.textContent=report.text||('Загрузка: '+Math.round(p*100)+'%');}});
-  status('ИИ готов. Напиши задание ниже.');progressText.textContent='Модель загружена и готова к работе.';solveBtn.disabled=false;loadBtn.textContent='ИИ запущен';
- }catch(e){status('Не удалось запустить ИИ: '+(e?.message||String(e)));progressText.textContent='Проверь интернет, память телефона и поддержку WebGPU.';loadBtn.disabled=false;}
+  status('Подключаем библиотеку и загружаем модель для работы через процессор. Первая загрузка может занять несколько минут; не закрывай вкладку.');
+  const {pipeline, env}=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.2');
+  env.allowLocalModels=false;
+  env.useBrowserCache=true;
+  engine=await pipeline('text-generation',MODEL_ID,{
+    dtype:'q4',
+    progress_callback:(report)=>{
+      if(typeof report.progress==='number'){
+        const p=Math.max(0,Math.min(1,report.progress));
+        bar.style.width=(p*100)+'%';
+      }
+      progressText.textContent=report.file ? ('Загрузка: '+report.file) : (report.status||'Подготовка модели…');
+    }
+  });
+  status('ИИ готов. Напиши задание ниже.');progressText.textContent='Модель загружена и готова к работе через процессор.';solveBtn.disabled=false;loadBtn.textContent='ИИ запущен';
+ }catch(e){status('Не удалось запустить ИИ: '+(e?.message||String(e)));progressText.textContent='Проверь интернет и свободную память телефона. Если ошибка повторится, пришли её текст.';loadBtn.disabled=false;}
  finally{loading=false;}
 });
 solveBtn.addEventListener('click',async()=>{
  const task=taskEl.value.trim();if(!task){status('Сначала напиши условие задания.');return}if(!engine)return;
  solveBtn.disabled=true;answerEl.textContent='Думаю над заданием…';
- try{const result=await engine.chat.completions.create({messages:[{role:'system',content:'Ты доброжелательный русскоязычный помощник школьника. Помогай учиться: объясняй простыми словами, решай по шагам, проверяй вычисления. Если данных не хватает, задай уточняющий вопрос. Не выдумывай условие. В конце коротко проверь ответ.'},{role:'user',content:task}],temperature:0.3,max_tokens:600});answerEl.textContent=result.choices?.[0]?.message?.content||'Модель не вернула ответ.';}
+ try{
+  const prompt='<|im_start|>system\nТы доброжелательный русскоязычный помощник школьника. Помогай учиться: объясняй простыми словами и решай по шагам. Если данных не хватает, задай вопрос. В конце проверь ответ.<|im_end|>\n<|im_start|>user\n'+task+'<|im_end|>\n<|im_start|>assistant\n';
+  const result=await engine(prompt,{max_new_tokens:300,do_sample:false});
+  const generated=result?.[0]?.generated_text;
+  answerEl.textContent=(typeof generated==='string'?generated.slice(prompt.length).trim():(Array.isArray(generated)?generated[generated.length-1]?.content:'')).trim()||'Модель не вернула ответ.';
+}
  catch(e){answerEl.textContent='Ошибка при генерации: '+(e?.message||String(e));}
  finally{solveBtn.disabled=false;}
 });
